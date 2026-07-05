@@ -1,6 +1,7 @@
 # H12 Telemetry Plotter (GUI)
 
-The H12 Telemetry Plotter is a tool for making dual-axis plots from H12 test-collection CSV files exported from the STE Console.
+A point-and-click tool for making dual-axis plots from H12 test-collection CSV
+files. No coding required.
 
 ## Files you need
 
@@ -72,6 +73,15 @@ shows the whole run to begin with.
 
 When Start/Stop cover the full range, Print saves just the full plot. When they
 cover a narrower window, Print also saves a zoomed plot of that window.
+
+### Chart title
+
+The **Chart Title** box (above the Print/Cancel buttons) sets the title printed
+on the plot. It fills in automatically with a default of
+`H12 Test Collection <filename>` when you load a CSV. Edit it to whatever you
+like — the preview updates as you type. On a zoom plot, the time window (e.g.
+`[13500-14800 s]`) is appended to your title automatically. Once you've typed
+your own title it stays put, even if you load a different CSV.
 
 ## What the plots look like
 

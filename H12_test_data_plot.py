@@ -151,6 +151,11 @@ def _title_stub(csv_path: str) -> str:
     return os.path.splitext(os.path.basename(csv_path))[0]
 
 
+def default_title(csv_path):
+    """The default chart title for a given CSV (used to prefill the GUI box)."""
+    return f"{TITLE_PREFIX} {_title_stub(_resolve_csv(csv_path))}"
+
+
 def _as_list(signals):
     """Accept a bare column name or a list; always return a list."""
     if isinstance(signals, str):
@@ -184,7 +189,7 @@ def _shades(cmap_name, n):
 
 
 def _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label, is_zoom=False,
-          fig_width=None, fig_height=None, target_fig=None):
+          fig_width=None, fig_height=None, target_fig=None, title=None):
     """Core dual-axis drawing routine shared by full and zoom plots.
 
     left, right : a column name or list of column names. All signals on a
@@ -332,11 +337,14 @@ def _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label, is_zoom=False,
                 loc="lower right", bbox_to_anchor=(1.0, legend_y),
                 borderaxespad=0.0, fontsize=fs_legend, ncol=1, frameon=True)
 
-    # Title centered horizontally, above the legend boxes.
-    title = f"{TITLE_PREFIX} {_title_stub(csv_path)}"
+    # Title centered horizontally, above the legend boxes. Use the caller's
+    # custom title if given, otherwise the default; the zoom window suffix is
+    # always appended so zoom plots stay identifiable.
+    base = title if title else f"{TITLE_PREFIX} {_title_stub(csv_path)}"
+    full_title = base
     if zoom_label:
-        title += f"  [{zoom_label}]"
-    ax_l.text(0.5, title_y, title, transform=ax_l.transAxes,
+        full_title += f"  [{zoom_label}]"
+    ax_l.text(0.5, title_y, full_title, transform=ax_l.transAxes,
               ha="center", va="center", fontsize=fs_title, fontweight="bold")
 
     return fig
@@ -369,7 +377,7 @@ def _out_path(csv_path, left, right, suffix, out_dir):
 
 def build_figure(csv_path, left, right, start_sec=None, end_sec=None,
                  df=None, max_points=None, fig_width=None, fig_height=None,
-                 target_fig=None):
+                 target_fig=None, title=None):
     """Build and return a matplotlib Figure WITHOUT saving it.
 
     Shared drawing path for both the saved plots and the live GUI preview, so
@@ -385,6 +393,9 @@ def build_figure(csv_path, left, right, start_sec=None, end_sec=None,
                       output never passes this, so files stay full-resolution.
     fig_width/fig_height : optional figure size in inches. The preview passes a
                       smaller size to fit its pane; saved plots use the default.
+    title           : optional custom chart title. If omitted, the default
+                      "H12 Test Collection <filename>" is used. A zoom window
+                      suffix is always appended for zoom plots.
 
     The caller is responsible for closing the figure (plt.close(fig)).
     """
@@ -419,30 +430,33 @@ def build_figure(csv_path, left, right, start_sec=None, end_sec=None,
     return _draw(df, csv_path, left, right, t_lo, t_hi,
                  zoom_label=label, is_zoom=is_zoom,
                  fig_width=fig_width, fig_height=fig_height,
-                 target_fig=target_fig)
+                 target_fig=target_fig, title=title)
 
 
-def plot_full(csv_path, left, right, out_dir=None):
+def plot_full(csv_path, left, right, out_dir=None, title=None):
     """Full-length dual-axis plot.
 
     left, right : a column name or list of column names. All signals on one
     side must share a unit (e.g. two voltages left, one current right).
+    title : optional custom chart title.
     """
     csv_path = _resolve_csv(csv_path)
-    fig = build_figure(csv_path, left, right)
+    fig = build_figure(csv_path, left, right, title=title)
     out = _out_path(csv_path, left, right, "", out_dir)
     fig.savefig(out, dpi=150)
     plt.close(fig)
     return out
 
 
-def plot_zoom(csv_path, left, right, start_sec, end_sec, out_dir=None):
+def plot_zoom(csv_path, left, right, start_sec, end_sec, out_dir=None,
+              title=None):
     """Zoomed dual-axis plot between start_sec and end_sec (seconds).
 
     The x-axis reads in seconds; the top axis shows m:ss.
+    title : optional custom chart title (the zoom window suffix is appended).
     """
     csv_path = _resolve_csv(csv_path)
-    fig = build_figure(csv_path, left, right, start_sec, end_sec)
+    fig = build_figure(csv_path, left, right, start_sec, end_sec, title=title)
     suffix = f"_zoom_{int(start_sec)}-{int(end_sec)}s"
     out = _out_path(csv_path, left, right, suffix, out_dir)
     fig.savefig(out, dpi=150)

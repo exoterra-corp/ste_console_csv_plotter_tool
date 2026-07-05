@@ -144,6 +144,7 @@ class App(ttk.Frame):
         self.out_dir = tk.StringVar()
         self.zoom_start = tk.StringVar()
         self.zoom_stop = tk.StringVar()
+        self.chart_title = tk.StringVar()
 
         self._df = None            # cached DataFrame for the loaded CSV
         self._df_path = None       # which path _df belongs to
@@ -153,6 +154,10 @@ class App(ttk.Frame):
         # Last-accepted zoom field values, for reverting invalid entries.
         self._last_start = ""
         self._last_stop = ""
+        # Whether the user has typed their own title (so we don't overwrite it
+        # when a new CSV is loaded).
+        self._title_customized = False
+        self._suppress_title_trace = False
 
         controls = ttk.Frame(self)
         controls.grid(row=0, column=0, sticky="nsew")
@@ -169,6 +174,8 @@ class App(ttk.Frame):
 
         # Live-refresh only on CSV change; zoom fields update on Enter only.
         self.csv_path.trace_add("write", lambda *_: self._on_csv_changed())
+        # Title edits refresh the preview live and mark it as user-customized.
+        self.chart_title.trace_add("write", lambda *_: self._on_title_changed())
 
         self._sync_axes()
         # Defer the first preview until the window has been fully laid out, so
@@ -224,8 +231,17 @@ class App(ttk.Frame):
         e_start.bind("<Return>", lambda _e: self._apply_zoom())
         e_stop.bind("<Return>", lambda _e: self._apply_zoom())
 
+        # Chart title (editable; prefilled with the default when a CSV loads).
+        title_frm = ttk.Frame(parent)
+        title_frm.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        title_frm.columnconfigure(1, weight=1)
+        ttk.Label(title_frm, text="Chart Title:").grid(
+            row=0, column=0, sticky="w")
+        ttk.Entry(title_frm, textvariable=self.chart_title).grid(
+            row=0, column=1, sticky="ew", padx=(6, 0))
+
         btns = ttk.Frame(parent)
-        btns.grid(row=4, column=0, sticky="e", pady=(10, 0))
+        btns.grid(row=5, column=0, sticky="e", pady=(10, 0))
         ttk.Button(btns, text="Print", command=self._print).grid(
             row=0, column=0, padx=(0, 8))
         ttk.Button(btns, text="Cancel", command=self.master.destroy).grid(
@@ -345,16 +361,33 @@ class App(ttk.Frame):
         self._schedule_preview()
 
     def _on_csv_changed(self):
-        """When the CSV changes, load it, set time bounds, and init the zoom
-        fields to the full range."""
+        """When the CSV changes, load it, set time bounds, init the zoom fields
+        to the full range, and prefill the default title (unless the user has
+        typed their own)."""
         csv = self.csv_path.get().strip()
         if csv and os.path.isfile(csv):
             try:
                 self._load_df(csv)  # sets _t_min/_t_max
+                if not self._title_customized:
+                    self._set_default_title(csv)
                 self._reset_zoom()
                 return
             except Exception:
                 pass
+        self._schedule_preview()
+
+    def _set_default_title(self, csv):
+        """Set the title box to the default without marking it customized."""
+        self._suppress_title_trace = True
+        self.chart_title.set(h12.default_title(csv))
+        self._suppress_title_trace = False
+
+    def _on_title_changed(self):
+        # Programmatic prefill sets _suppress_title_trace so it isn't counted
+        # as a user edit.
+        if getattr(self, "_suppress_title_trace", False):
+            return
+        self._title_customized = True
         self._schedule_preview()
 
     def _pick_csv(self):
@@ -421,7 +454,8 @@ class App(ttk.Frame):
             # canvas always shows the latest plot and every change refreshes.
             h12.build_figure(csv, a1, a2, start, stop,
                              df=df, max_points=PREVIEW_MAX_POINTS,
-                             target_fig=self._fig)
+                             target_fig=self._fig,
+                             title=self.chart_title.get().strip() or None)
         except Exception as e:
             self._show_message(f"Preview error:\n{e}")
             self._status.configure(text="")
@@ -457,9 +491,11 @@ class App(ttk.Frame):
             return
 
         try:
-            made = [h12.plot_full(csv, a1, a2, out)]
+            ttl = self.chart_title.get().strip() or None
+            made = [h12.plot_full(csv, a1, a2, out, title=ttl)]
             if zoom:
-                made.append(h12.plot_zoom(csv, a1, a2, zoom[0], zoom[1], out))
+                made.append(h12.plot_zoom(csv, a1, a2, zoom[0], zoom[1], out,
+                                          title=ttl))
         except Exception as exc:
             messagebox.showerror(
                 "Plotting error",
