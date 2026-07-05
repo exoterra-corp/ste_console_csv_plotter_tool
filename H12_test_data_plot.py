@@ -57,35 +57,28 @@ PRESSURE = "pressure"    # milli-psi -> psi, 3 dp
 
 SIGNAL_KIND = {
     # Voltages (mV -> V)
-    "anode_input_v":            VOLTAGE,
-    "anode_filtered_v":         VOLTAGE,
-    "anode_vout":               VOLTAGE,   # typically 300-500 V
-    "keeper_flyback":           VOLTAGE,
-    "magnet_vout":              VOLTAGE,
-    "keeper_vout_scope_mean":   VOLTAGE,
-    "keeper_vout_scope_max":    VOLTAGE,
-    "anode_vout_scope_mean":    VOLTAGE,
-    "magnet_vout_scope_mean":   VOLTAGE,
+    "anode_input_v":    VOLTAGE,
+    "anode_filtered_v": VOLTAGE,
+    "anode_vout":       VOLTAGE,   # typically 300-500 V
+    "keeper_flyback":   VOLTAGE,
+    "magnet_vout":      VOLTAGE,
     # Currents (mA -> A)
-    "anode_x_switch":           CURRENT,
-    "anode_y_switch":           CURRENT,
-    "anode_iout":               CURRENT,
-    "keeper_iout":              CURRENT,
-    "magnet_iout":              CURRENT,
-    "keeper_iout_scope_mean":   CURRENT,
-    "anode_iout_scope_mean":    CURRENT,
-    "magnet_iout_scope_mean":   CURRENT,
+    "anode_x_switch":   CURRENT,
+    "anode_y_switch":   CURRENT,
+    "anode_iout":       CURRENT,
+    "keeper_iout":      CURRENT,
+    "magnet_iout":      CURRENT,
     # Temperatures (C)
-    "temp_thruster":            TEMPERATURE,
-    "temp_keeper_mcu":          TEMPERATURE,
-    "temp_pds":                 TEMPERATURE,
-    "temp_anode_mcu":           TEMPERATURE,
-    "temp_magnet_mcu":          TEMPERATURE,
+    "temp_thruster":    TEMPERATURE,
+    "temp_keeper_mcu":  TEMPERATURE,
+    "temp_pds":         TEMPERATURE,
+    "temp_anode_mcu":   TEMPERATURE,
+    "temp_magnet_mcu":  TEMPERATURE,
     # Pressures
-    "pressure_tank":            TANK_PRESSURE,    # psi, integer
-    "pressure_anode":           PRESSURE,         # milli-psi -> psi
-    "pressure_cathode":         PRESSURE,
-    "pressure_reg":             PRESSURE,
+    "pressure_tank":    TANK_PRESSURE,    # psi, integer
+    "pressure_anode":   PRESSURE,         # milli-psi -> psi
+    "pressure_cathode": PRESSURE,
+    "pressure_reg":     PRESSURE,
 }
 
 # Per-kind handling: (scale factor, unit label, axis-tick formatter)
@@ -190,12 +183,20 @@ def _shades(cmap_name, n):
     return [cmap(x) for x in np.linspace(0.0, 1.0, n)]
 
 
-def _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label, is_zoom=False):
+def _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label, is_zoom=False,
+          fig_width=None, fig_height=None, target_fig=None):
     """Core dual-axis drawing routine shared by full and zoom plots.
 
     left, right : a column name or list of column names. All signals on a
     given side must share a unit (e.g. several voltages on the left).
+    fig_width/fig_height : optional inches; default to the export size. The
+    preview passes a smaller, wider size so it fits its pane.
+    target_fig : if given, clear and draw into this existing Figure instead of
+    creating a new one. The GUI reuses its canvas figure this way, which avoids
+    fragile figure-swapping on the Tk canvas.
     """
+    fig_width = FIG_WIDTH if fig_width is None else fig_width
+    fig_height = FIG_HEIGHT if fig_height is None else fig_height
     t = _time_seconds(df)
 
     left = _as_list(left)
@@ -208,7 +209,22 @@ def _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label, is_zoom=False):
     right_colors = ([RIGHT_COLOR] if len(right) == 1
                     else _shades(RIGHT_CMAP, len(right)))
 
-    fig, ax_l = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+    if target_fig is not None:
+        fig = target_fig
+        fig.clear()
+        ax_l = fig.add_subplot(111)
+    else:
+        fig, ax_l = plt.subplots(figsize=(fig_width, fig_height))
+
+    # Scale fonts/spacing for smaller (preview) figures so the legend band and
+    # title don't overwhelm a short figure. 1.0 at the default export height.
+    # Use the figure's real height (matters when drawing into a reused figure).
+    real_h = fig.get_size_inches()[1]
+    fig_height = real_h
+    scale = min(1.0, real_h / FIG_HEIGHT)
+    fs_legend = max(6, 9 * scale)
+    fs_label = max(6, 9 * scale)
+    fs_title = max(8, 13 * scale)
 
     for sig, col in zip(left, left_colors):
         vals, _, _ = _series(df, sig)
@@ -273,48 +289,74 @@ def _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label, is_zoom=False):
     ax_l.grid(True, which="major", axis="both", alpha=0.3)
     ax_l.grid(True, which="minor", axis="x", alpha=0.15)
 
-    # Two legends stacked above the plot (left-axis row on top, right-axis
-    # row below), each centered and wrapping across columns as needed. This
-    # keeps them clear of the title and of each other.
-    left_lines = ax_l.get_lines()
-    right_lines = ax_r.get_lines()
-    # Two vertically-stacked legend boxes above the plot: left-axis signals
-    # at the top-left, right-axis signals at the top-right, with the title
-    # centered between them.
+    # ---- Header band above the plot: three stacked, non-overlapping levels --
+    # (from just above the plot upward): elapsed-time label, then the two
+    # legend boxes, then the centered title at the very top.
     left_lines = ax_l.get_lines()
     right_lines = ax_r.get_lines()
     n_rows = max(len(left_lines), len(right_lines))
-    # Anchor the legend boxes just above the plot; taller boxes (more rows)
-    # need their bottom edge higher so they don't reach into the axes.
-    anchor_y = 1.13
+
+    # Reserve headroom (inches) for label + legends + title. Scaled for small
+    # preview figures. Extra room per legend row keeps the title clear.
+    header_in = (1.9 + 0.30 * n_rows) * scale
+    top = 1.0 - header_in / fig_height
+    # Explicit margins so the plot fills the figure (avoids large white bands,
+    # especially in the GUI preview where the figure matches the canvas size).
+    left_m = min(0.10, 0.9 / fig_width)
+    right_m = 1.0 - min(0.10, 0.9 / fig_width)
+    bottom_m = min(0.12, 0.8 / fig_height)
+    fig.subplots_adjust(top=top, bottom=bottom_m, left=left_m, right=right_m)
+
+    # Vertical positions in axes-fraction coords (1.0 == top of plot). Convert
+    # a desired inch offset above the plot into axes fraction.
+    plot_in = fig_height * top
+    def _frac(inches_above):
+        return 1.0 + inches_above / plot_in
+
+    label_y = _frac(0.10 * scale)                     # elapsed-time label
+    legend_y = _frac(0.35 * scale)                    # bottom of legend boxes
+    # Title sits above the tallest legend box. Each legend row is ~0.22" tall.
+    title_y = _frac((0.55 + 0.24 * n_rows) * scale)
+
+    # Elapsed-time scale label, placed at the right edge just above the top
+    # ticks so it never overlaps a tick label.
+    ax_l.text(1.0, label_y, _top_label, transform=ax_l.transAxes,
+              ha="right", va="bottom", fontsize=fs_label, color="0.3")
+
+    # Two vertically-stacked legend boxes: left-axis at top-left, right-axis at
+    # top-right.
     ax_l.legend(left_lines, [ln.get_label() for ln in left_lines],
-                loc="lower left", bbox_to_anchor=(0.0, anchor_y),
-                borderaxespad=0.0, fontsize=9, ncol=1, frameon=True)
+                loc="lower left", bbox_to_anchor=(0.0, legend_y),
+                borderaxespad=0.0, fontsize=fs_legend, ncol=1, frameon=True)
     ax_r.legend(right_lines, [ln.get_label() for ln in right_lines],
-                loc="lower right", bbox_to_anchor=(1.0, anchor_y),
-                borderaxespad=0.0, fontsize=9, ncol=1, frameon=True)
+                loc="lower right", bbox_to_anchor=(1.0, legend_y),
+                borderaxespad=0.0, fontsize=fs_legend, ncol=1, frameon=True)
 
-    # Elapsed-time scale label, placed under the top ticks (left of center
-    # so it stays clear of the centered title above).
-    ax_l.text(0.78, 1.045, _top_label, transform=ax_l.transAxes,
-              ha="right", va="bottom", fontsize=9, color="0.3")
-
+    # Title centered horizontally, above the legend boxes.
     title = f"{TITLE_PREFIX} {_title_stub(csv_path)}"
     if zoom_label:
         title += f"  [{zoom_label}]"
-    # Title centered horizontally between the two boxes, vertically centered
-    # within the legend band.
-    title_y = anchor_y + 0.045 * n_rows / 2.0
     ax_l.text(0.5, title_y, title, transform=ax_l.transAxes,
-              ha="center", va="center", fontsize=13, fontweight="bold")
+              ha="center", va="center", fontsize=fs_title, fontweight="bold")
 
-    # Reserve a fixed amount of headroom (in inches) for the legend band +
-    # title, independent of figure height, so making the figure taller grows
-    # the plot area rather than the gap above it.
-    header_in = 1.4 + 0.22 * n_rows
-    top = 1.0 - header_in / FIG_HEIGHT
-    fig.tight_layout(rect=[0, 0, 1, top])
     return fig
+
+
+def _data_dir():
+    """Folder for resolving bare CSV names and default output location.
+
+    Uses the H12_DATA_DIR env var if set (used by the Docker container),
+    otherwise the current working directory. Absolute paths bypass this.
+    """
+    return os.environ.get("H12_DATA_DIR", os.getcwd())
+
+
+def _resolve_csv(csv_path):
+    """Resolve a CSV path: absolute/existing paths are used as-is; bare
+    filenames are looked up inside the data dir."""
+    if os.path.isabs(csv_path) or os.path.exists(csv_path):
+        return csv_path
+    return os.path.join(_data_dir(), csv_path)
 
 
 def _out_path(csv_path, left, right, suffix, out_dir):
@@ -322,7 +364,62 @@ def _out_path(csv_path, left, right, suffix, out_dir):
     left_name = "+".join(_as_list(left))
     right_name = "+".join(_as_list(right))
     name = f"{stub}_{left_name}_vs_{right_name}{suffix}.png"
-    return os.path.join(out_dir or os.getcwd(), name)
+    return os.path.join(out_dir or _data_dir(), name)
+
+
+def build_figure(csv_path, left, right, start_sec=None, end_sec=None,
+                 df=None, max_points=None, fig_width=None, fig_height=None,
+                 target_fig=None):
+    """Build and return a matplotlib Figure WITHOUT saving it.
+
+    Shared drawing path for both the saved plots and the live GUI preview, so
+    the preview looks exactly like the output (same ticks, legends, styling).
+
+    csv_path        : path to the data file (used for the title and resolution)
+    left, right     : signal name or list of names for each axis
+    start_sec/end_sec : if both given, produce a zoom over that window
+    df              : optional pre-loaded DataFrame (lets the GUI cache the CSV
+                      and avoid re-reading it on every preview refresh)
+    max_points      : optional cap; if the (visible) data has more rows than
+                      this, it is decimated for a faster preview. The saved
+                      output never passes this, so files stay full-resolution.
+    fig_width/fig_height : optional figure size in inches. The preview passes a
+                      smaller size to fit its pane; saved plots use the default.
+
+    The caller is responsible for closing the figure (plt.close(fig)).
+    """
+    csv_path = _resolve_csv(csv_path)
+    if df is None:
+        df = pd.read_csv(csv_path)
+
+    is_zoom = start_sec is not None and end_sec is not None
+    if is_zoom:
+        t_lo, t_hi = float(start_sec), float(end_sec)
+        label = f"{int(start_sec)}-{int(end_sec)} s"
+    else:
+        t_lo = t_hi = None
+        label = None
+
+    # Optional decimation for a responsive preview on large files.
+    if max_points is not None and len(df) > max_points:
+        if is_zoom:
+            # Decimate only within the visible window so the zoom keeps detail.
+            t = _time_seconds(df)
+            mask = (t >= t_lo) & (t <= t_hi)
+            visible = df[mask]
+            if len(visible) > max_points:
+                step = int(len(visible) / max_points) + 1
+                df = visible.iloc[::step]
+            else:
+                df = visible
+        else:
+            step = int(len(df) / max_points) + 1
+            df = df.iloc[::step]
+
+    return _draw(df, csv_path, left, right, t_lo, t_hi,
+                 zoom_label=label, is_zoom=is_zoom,
+                 fig_width=fig_width, fig_height=fig_height,
+                 target_fig=target_fig)
 
 
 def plot_full(csv_path, left, right, out_dir=None):
@@ -331,8 +428,8 @@ def plot_full(csv_path, left, right, out_dir=None):
     left, right : a column name or list of column names. All signals on one
     side must share a unit (e.g. two voltages left, one current right).
     """
-    df = pd.read_csv(csv_path)
-    fig = _draw(df, csv_path, left, right, None, None, zoom_label=None)
+    csv_path = _resolve_csv(csv_path)
+    fig = build_figure(csv_path, left, right)
     out = _out_path(csv_path, left, right, "", out_dir)
     fig.savefig(out, dpi=150)
     plt.close(fig)
@@ -344,11 +441,8 @@ def plot_zoom(csv_path, left, right, start_sec, end_sec, out_dir=None):
 
     The x-axis reads in seconds; the top axis shows m:ss.
     """
-    df = pd.read_csv(csv_path)
-    t_lo, t_hi = float(start_sec), float(end_sec)
-    label = f"{int(start_sec)}-{int(end_sec)} s"
-    fig = _draw(df, csv_path, left, right, t_lo, t_hi, zoom_label=label,
-                is_zoom=True)
+    csv_path = _resolve_csv(csv_path)
+    fig = build_figure(csv_path, left, right, start_sec, end_sec)
     suffix = f"_zoom_{int(start_sec)}-{int(end_sec)}s"
     out = _out_path(csv_path, left, right, suffix, out_dir)
     fig.savefig(out, dpi=150)
