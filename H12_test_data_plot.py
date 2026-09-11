@@ -54,6 +54,8 @@ CURRENT = "current"      # mA -> A, 3 dp
 TEMPERATURE = "temp"     # C, 1 dp
 TANK_PRESSURE = "tank_pressure"    # psi, integer
 PRESSURE = "pressure"    # milli-psi -> psi, 3 dp
+COUNTS = "counts"        # unitless DAC counts, integer
+MASS = "mass"            # mg, 1 dp
 
 SIGNAL_KIND = {
     # Voltages (mV -> V)
@@ -62,6 +64,7 @@ SIGNAL_KIND = {
     "anode_vout":       VOLTAGE,   # typically 300-500 V
     "keeper_flyback":   VOLTAGE,
     "magnet_vout":      VOLTAGE,
+    "cathode_hf_voltage": VOLTAGE,
     # Currents (mA -> A)
     "anode_x_switch":   CURRENT,
     "anode_y_switch":   CURRENT,
@@ -79,6 +82,11 @@ SIGNAL_KIND = {
     "pressure_anode":   PRESSURE,         # milli-psi -> psi
     "pressure_cathode": PRESSURE,
     "pressure_reg":     PRESSURE,
+    # Unitless DAC counts
+    "anode_pcv_dac_cnts":   COUNTS,
+    "cathode_pcv_dac_cnts": COUNTS,
+    # Mass
+    "fuel_usage_estimate": MASS,   # mg
 }
 
 # Per-kind handling: (scale factor, unit label, axis-tick formatter)
@@ -91,6 +99,8 @@ _KIND_SPEC = {
     TEMPERATURE:   (1.0,          "C",   lambda v, _: f"{v:.1f}"),
     TANK_PRESSURE: (1.0,          "psi", lambda v, _: f"{int(round(v))}"),
     PRESSURE:      (1.0 / 1000.0, "psi", lambda v, _: f"{v:.1f}"),
+    COUNTS:        (1.0,          "counts", lambda v, _: f"{int(round(v))}"),
+    MASS:          (1.0,          "mg",  lambda v, _: f"{v:.1f}"),
 }
 
 # Per-signal scale overrides (TEMPORARY).

@@ -64,6 +64,8 @@ KIND_LABEL = {
     h12.TEMPERATURE if h12 else "temp": "Temperature (C)",
     h12.TANK_PRESSURE if h12 else "tank_pressure": "Tank pressure (psi)",
     h12.PRESSURE if h12 else "pressure": "Pressure (psi)",
+    h12.COUNTS if h12 else "counts": "DAC Counts (unitless)",
+    h12.MASS if h12 else "mass": "Fuel Usage (mg)",
 }
 
 
@@ -264,7 +266,7 @@ class App(ttk.Frame):
 
     def _signals_by_kind(self):
         order = [h12.VOLTAGE, h12.CURRENT, h12.TEMPERATURE,
-                 h12.TANK_PRESSURE, h12.PRESSURE]
+                 h12.TANK_PRESSURE, h12.PRESSURE, h12.COUNTS, h12.MASS]
         grouped = []
         for kind in order:
             sigs = [s for s, k in h12.SIGNAL_KIND.items() if k == kind]
